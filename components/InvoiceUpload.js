@@ -5,26 +5,30 @@ const ACCOUNTS = ['仕入高', '消耗品費', '外注費', '地代家賃', '諸
 
 export default function InvoiceUpload({ onRegister }) {
   const [file, setFile] = useState(null);
+  const [fileUrl, setFileUrl] = useState(null);
+  const [fileType, setFileType] = useState(null);
   const [form, setForm] = useState({ vendor: '', date: '', due: '', amount: '', tax: '', bank: '', desc: '', dept: '', account: '仕入高' });
   const [aiResult, setAiResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
-  const [confirmed, setConfirmed] = useState(false);
+  const [registeredFiles, setRegisteredFiles] = useState([]);
   const [drag, setDrag] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
   const fileRef = useRef();
 
   const handleFile = f => {
     const allowed = ['application/pdf', 'image/png', 'image/jpeg'];
     if (!allowed.includes(f.type)) { setError('PDF・PNG・JPGのみ対応しています'); return; }
     if (f.size > 20 * 1024 * 1024) { setError('20MB以下のファイルをアップロードしてください'); return; }
-    setFile(f); setError(''); setAiResult(null); setConfirmed(false);
+    const url = URL.createObjectURL(f);
+    setFile(f); setFileUrl(url); setFileType(f.type);
+    setError(''); setAiResult(null);
   };
 
   const analyze = async () => {
     if (!file) return;
     setLoading(true); setProgress(10); setError(''); setAiResult(null);
-
     const reader = new FileReader();
     reader.onload = async e => {
       const base64 = e.target.result.split(',')[1];
@@ -64,16 +68,18 @@ export default function InvoiceUpload({ onRegister }) {
     if (!form.vendor || !form.amount) { setError('仕入先名と金額は必須です'); return; }
     const dueDate = form.due || form.date || new Date().toISOString().split('T')[0];
     onRegister({
-      type: 'expense',
-      date: dueDate,
-      vendor: form.vendor,
-      desc: form.desc || '仕入請求',
-      income: 0,
-      expense: parseInt(form.amount) || 0,
-      status: 'planned',
-      account: form.account,
+      type: 'expense', date: dueDate, vendor: form.vendor,
+      desc: form.desc || '仕入請求', income: 0,
+      expense: parseInt(form.amount) || 0, status: 'planned', account: form.account,
     });
-    setFile(null); setAiResult(null); setConfirmed(true);
+    if (file && fileUrl) {
+      setRegisteredFiles(prev => [...prev, {
+        id: Date.now(), name: file.name, url: fileUrl, type: fileType,
+        vendor: form.vendor, amount: form.amount, due: dueDate,
+        registeredAt: new Date().toLocaleDateString('ja-JP'),
+      }]);
+    }
+    setFile(null); setFileUrl(null); setFileType(null); setAiResult(null);
     setForm({ vendor: '', date: '', due: '', amount: '', tax: '', bank: '', desc: '', dept: '', account: '仕入高' });
   };
 
@@ -86,7 +92,6 @@ export default function InvoiceUpload({ onRegister }) {
       <div style={s.card}>
         <div style={s.cardTitle}>仕入先請求書の登録</div>
 
-        {/* アップロードゾーン */}
         <div
           style={{ ...s.uploadZone, ...(drag ? s.uploadZoneDrag : {}) }}
           onClick={() => fileRef.current.click()}
@@ -100,10 +105,15 @@ export default function InvoiceUpload({ onRegister }) {
           <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" style={{ display: 'none' }} onChange={e => { if (e.target.files[0]) handleFile(e.target.files[0]); }} />
         </div>
 
-        {file && !aiResult && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button style={s.btnPrimary} onClick={analyze} disabled={loading}>
-              {loading ? '解析中...' : 'AIで読み取る'}
+        {file && fileUrl && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+            {!aiResult && (
+              <button style={s.btnPrimary} onClick={analyze} disabled={loading}>
+                {loading ? '解析中...' : 'AIで読み取る'}
+              </button>
+            )}
+            <button style={s.btnOutline} onClick={() => setPreviewFile({ url: fileUrl, type: fileType, name: file.name })}>
+              📎 ファイルを確認
             </button>
             {loading && (
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -116,7 +126,6 @@ export default function InvoiceUpload({ onRegister }) {
 
         {error && <div style={s.errorBox}>{error}</div>}
 
-        {/* AI確認画面 */}
         {aiResult && (
           <div style={s.aiBox}>
             <div style={s.aiHeader}>
@@ -129,7 +138,6 @@ export default function InvoiceUpload({ onRegister }) {
           </div>
         )}
 
-        {/* 入力フォーム（AI結果または手入力） */}
         <div style={s.formGrid}>
           {[
             { label: '仕入先名 *', key: 'vendor', type: 'text', placeholder: '例: A商事株式会社' },
@@ -169,9 +177,47 @@ export default function InvoiceUpload({ onRegister }) {
             {aiResult ? '✓ 内容を確認して出納帳に登録' : '出納帳に登録'}
           </button>
         </div>
-
-        {confirmed && <div style={s.successBox}>✓ 支払予定を出納帳に登録しました</div>}
       </div>
+
+      {/* 登録済みファイル一覧 */}
+      {registeredFiles.length > 0 && (
+        <div style={s.card}>
+          <div style={s.cardTitle}>登録済み請求書ファイル</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {registeredFiles.map(f => (
+              <div key={f.id} style={s.fileRow} onClick={() => setPreviewFile({ url: f.url, type: f.type, name: f.name })}>
+                <div style={s.fileIconLg}>{f.type === 'application/pdf' ? '📄' : '🖼'}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={s.fileName}>{f.name}</div>
+                  <div style={s.fileMeta}>
+                    {f.vendor}　¥{parseInt(f.amount).toLocaleString()}　支払日: {f.due.replace(/-/g, '/')}　登録: {f.registeredAt}
+                  </div>
+                </div>
+                <div style={s.openLabel}>クリックで開く →</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* プレビューモーダル */}
+      {previewFile && (
+        <div style={s.overlay} onClick={() => setPreviewFile(null)}>
+          <div style={s.previewModal} onClick={e => e.stopPropagation()}>
+            <div style={s.previewHeader}>
+              <div style={{ fontWeight: 500, fontSize: 14 }}>{previewFile.name}</div>
+              <button style={s.closeBtn} onClick={() => setPreviewFile(null)}>✕ 閉じる</button>
+            </div>
+            <div style={s.previewBody}>
+              {previewFile.type === 'application/pdf' ? (
+                <iframe src={previewFile.url} style={{ width: '100%', height: '100%', border: 'none' }} title="請求書" />
+              ) : (
+                <img src={previewFile.url} alt="請求書" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -185,10 +231,10 @@ const styles = {
   uploadTitle: { fontSize: 14, fontWeight: 500, marginBottom: 4 },
   uploadSub: { fontSize: 12, color: '#888' },
   btnPrimary: { padding: '8px 16px', border: '0.5px solid #1D9E75', borderRadius: 8, background: '#1D9E75', color: '#fff', cursor: 'pointer', fontSize: 13 },
+  btnOutline: { padding: '8px 14px', border: '0.5px solid #ccc', borderRadius: 8, background: '#fff', color: '#444', cursor: 'pointer', fontSize: 13 },
   progressBar: { flex: 1, height: 4, background: '#e0e0e0', borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: '100%', background: '#1D9E75', borderRadius: 2, transition: 'width .3s' },
   errorBox: { background: '#FCEBEB', border: '0.5px solid #F7C1C1', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: '#791F1F' },
-  successBox: { background: '#EAF3DE', border: '0.5px solid #C0DD97', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 13, color: '#27500A' },
   aiBox: { background: '#E1F5EE', border: '0.5px solid #9FE1CB', borderRadius: 8, padding: '12px 16px', marginBottom: 12 },
   aiHeader: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 },
   aiBadge: { background: '#1D9E75', color: '#fff', fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 500 },
@@ -197,4 +243,14 @@ const styles = {
   formGroup: { display: 'flex', flexDirection: 'column', gap: 4 },
   label: { fontSize: 12, color: '#888' },
   input: { padding: '7px 10px', border: '0.5px solid #e0e0e0', borderRadius: 8, fontSize: 13, background: '#fff', fontFamily: 'inherit' },
+  fileRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', background: '#f5f5f3', borderRadius: 8, cursor: 'pointer', border: '0.5px solid #e0e0e0', transition: 'background .15s' },
+  fileIconLg: { fontSize: 24, flexShrink: 0 },
+  fileName: { fontSize: 13, fontWeight: 500, marginBottom: 2 },
+  fileMeta: { fontSize: 11, color: '#888' },
+  openLabel: { fontSize: 12, color: '#1D9E75', fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  previewModal: { background: '#fff', borderRadius: 12, width: '90%', maxWidth: 800, height: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  previewHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderBottom: '0.5px solid #e0e0e0', flexShrink: 0 },
+  previewBody: { flex: 1, overflow: 'auto', padding: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  closeBtn: { padding: '6px 12px', border: '0.5px solid #ccc', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13 },
 };

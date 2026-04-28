@@ -1,6 +1,6 @@
 import { fmt } from '../lib/utils';
 
-const OPENING_BALANCE = 8300000;
+const OPENING_BALANCE = 0;
 
 export default function Ledger({ data, month, onConfirm, onDelete, onChangeMonth, filter, onFilterChange }) {
   const filtered = data
@@ -98,7 +98,7 @@ export default function Ledger({ data, month, onConfirm, onDelete, onChangeMonth
         <table style={s.table}>
           <thead>
             <tr>
-              {['日付', '区分', '相手先', '内容', '入金', '出金', '残高', '状態', '操作'].map(h => (
+              {['支払日', '区分', '相手先', '内容', '入金', '出金', '残高', '状態', '操作'].map(h => (
                 <th key={h} style={s.th}>{h}</th>
               ))}
             </tr>
